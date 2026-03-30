@@ -1,6 +1,6 @@
 """Utility modules for Moonshine fine-tuning."""
 
-from .metrics import compute_wer, compute_cer
+from .metrics import compute_cer, compute_wer
 from .preprocessing import normalize_audio, pad_audio
 
 __all__ = [

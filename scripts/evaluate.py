@@ -25,13 +25,10 @@ import time
 from pathlib import Path
 from typing import Dict, List, Optional
 
-import torch
+import jiwer
 import numpy as np
-from datasets import load_from_disk, load_dataset
-from transformers import (
-    MoonshineForConditionalGeneration,
-    AutoProcessor
-)
+import torch
+from transformers import MoonshineForConditionalGeneration, AutoProcessor
 from tqdm import tqdm
 import jiwer
 
@@ -57,13 +54,13 @@ def compute_wer(predictions: List[str], references: List[str]) -> Dict:
     output = jiwer.process_words(references, predictions)
 
     return {
-        'wer': wer * 100,  # Convert to percentage
-        'cer': cer * 100,
-        'substitutions': output.substitutions,
-        'deletions': output.deletions,
-        'insertions': output.insertions,
-        'hits': output.hits,
-        'num_words': output.hits + output.substitutions + output.deletions
+        "wer": wer * 100,  # Convert to percentage
+        "cer": cer * 100,
+        "substitutions": output.substitutions,
+        "deletions": output.deletions,
+        "insertions": output.insertions,
+        "hits": output.hits,
+        "num_words": output.hits + output.substitutions + output.deletions,
     }
 
 
@@ -81,10 +78,7 @@ class MoonshineEvaluator:
     """Moonshine ASR evaluation pipeline."""
 
     def __init__(
-        self,
-        model_path: str,
-        device: Optional[str] = None,
-        fp16: bool = False
+        self, model_path: str, device: Optional[str] = None, fp16: bool = False
     ):
         """
         Initialize evaluation pipeline.
@@ -126,7 +120,7 @@ class MoonshineEvaluator:
         sampling_rate: int,
         num_beams: int = 5,
         repetition_penalty: float = 1.3,
-        no_repeat_ngram_size: int = 2
+        no_repeat_ngram_size: int = 2,
     ) -> str:
         """
         Transcribe a single audio sample.
@@ -149,7 +143,7 @@ class MoonshineEvaluator:
             audio_array,
             sampling_rate=sampling_rate,
             return_tensors="pt",
-            return_attention_mask=True
+            return_attention_mask=True,
         )
 
         input_values = inputs.input_values.to(self.device)
@@ -173,13 +167,12 @@ class MoonshineEvaluator:
                 repetition_penalty=repetition_penalty,
                 no_repeat_ngram_size=no_repeat_ngram_size,
                 do_sample=False,
-                early_stopping=True
+                early_stopping=True,
             )
 
         # Decode
         transcription = self.processor.tokenizer.batch_decode(
-            outputs,
-            skip_special_tokens=True
+            outputs, skip_special_tokens=True
         )[0]
 
         return transcription.strip()
@@ -187,14 +180,14 @@ class MoonshineEvaluator:
     def evaluate_dataset(
         self,
         dataset,
-        audio_column: str = 'audio',
-        text_column: str = 'sentence',
+        audio_column: str = "audio",
+        text_column: str = "sentence",
         max_samples: Optional[int] = None,
         batch_size: int = 1,
         num_beams: int = 5,
         repetition_penalty: float = 1.3,
         no_repeat_ngram_size: int = 2,
-        save_predictions: bool = False
+        save_predictions: bool = False,
     ) -> Dict:
         """
         Evaluate model on a dataset.
@@ -230,8 +223,8 @@ class MoonshineEvaluator:
                 audio = sample[audio_column]
                 reference = sample[text_column]
 
-                audio_array = audio['array']
-                sampling_rate = audio['sampling_rate']
+                audio_array = audio["array"]
+                sampling_rate = audio["sampling_rate"]
 
                 # Transcribe
                 start_time = time.time()
@@ -240,7 +233,7 @@ class MoonshineEvaluator:
                     sampling_rate,
                     num_beams=num_beams,
                     repetition_penalty=repetition_penalty,
-                    no_repeat_ngram_size=no_repeat_ngram_size
+                    no_repeat_ngram_size=no_repeat_ngram_size,
                 )
                 inference_time = time.time() - start_time
 
@@ -263,21 +256,27 @@ class MoonshineEvaluator:
         # Add timing metrics
         total_audio_duration = sum(durations)
         total_inference_time = sum(inference_times)
-        metrics['total_audio_duration'] = total_audio_duration
-        metrics['total_inference_time'] = total_inference_time
-        metrics['rtf'] = total_inference_time / total_audio_duration if total_audio_duration > 0 else 0
-        metrics['num_samples'] = len(predictions)
+        metrics["total_audio_duration"] = total_audio_duration
+        metrics["total_inference_time"] = total_inference_time
+        metrics["rtf"] = (
+            total_inference_time / total_audio_duration
+            if total_audio_duration > 0
+            else 0
+        )
+        metrics["num_samples"] = len(predictions)
 
         # Add predictions if requested
         if save_predictions:
-            metrics['predictions'] = [
+            metrics["predictions"] = [
                 {
-                    'prediction': pred,
-                    'reference': ref,
-                    'duration': dur,
-                    'inference_time': inf_time
+                    "prediction": pred,
+                    "reference": ref,
+                    "duration": dur,
+                    "inference_time": inf_time,
                 }
-                for pred, ref, dur, inf_time in zip(predictions, references, durations, inference_times)
+                for pred, ref, dur, inf_time in zip(
+                    predictions, references, durations, inference_times
+                )
             ]
 
         return metrics
@@ -285,7 +284,7 @@ class MoonshineEvaluator:
 
 def main():
     parser = argparse.ArgumentParser(
-        description='Moonshine ASR Evaluation',
+        description="Moonshine ASR Evaluation",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
@@ -304,91 +303,77 @@ Examples:
   # GPU with FP16
   python evaluate.py --model ./model --dataset ./data/test \\
       --device cuda --fp16
-        """
+        """,
     )
 
     # Required arguments
     parser.add_argument(
-        '--model',
-        type=str,
-        required=True,
-        help='Path to model directory'
+        "--model", type=str, required=True, help="Path to model directory"
     )
     parser.add_argument(
-        '--dataset',
+        "--dataset",
         type=str,
         required=True,
-        help='Path to dataset directory or HuggingFace dataset name'
+        help="Path to dataset directory or HuggingFace dataset name",
     )
 
     # Dataset arguments
     parser.add_argument(
-        '--split',
+        "--split",
         type=str,
-        default='test',
-        help='Dataset split to evaluate (default: test)'
+        default="test",
+        help="Dataset split to evaluate (default: test)",
     )
     parser.add_argument(
-        '--audio-column',
+        "--audio-column",
         type=str,
-        default='audio',
-        help='Name of audio column (default: audio)'
+        default="audio",
+        help="Name of audio column (default: audio)",
     )
     parser.add_argument(
-        '--text-column',
+        "--text-column",
         type=str,
-        default='sentence',
-        help='Name of text column (default: sentence)'
+        default="sentence",
+        help="Name of text column (default: sentence)",
     )
     parser.add_argument(
-        '--max-samples',
-        type=int,
-        help='Maximum samples to evaluate (default: all)'
+        "--max-samples", type=int, help="Maximum samples to evaluate (default: all)"
     )
 
     # Model arguments
     parser.add_argument(
-        '--device',
+        "--device",
         type=str,
-        choices=['cuda', 'cpu'],
-        help='Device to use (default: auto-detect)'
+        choices=["cuda", "cpu"],
+        help="Device to use (default: auto-detect)",
     )
     parser.add_argument(
-        '--fp16',
-        action='store_true',
-        help='Use FP16 precision (CUDA only)'
+        "--fp16", action="store_true", help="Use FP16 precision (CUDA only)"
     )
 
     # Generation parameters
     parser.add_argument(
-        '--num-beams',
-        type=int,
-        default=5,
-        help='Number of beams (default: 5)'
+        "--num-beams", type=int, default=5, help="Number of beams (default: 5)"
     )
     parser.add_argument(
-        '--repetition-penalty',
+        "--repetition-penalty",
         type=float,
         default=1.3,
-        help='Repetition penalty (default: 1.3)'
+        help="Repetition penalty (default: 1.3)",
     )
     parser.add_argument(
-        '--no-repeat-ngram-size',
+        "--no-repeat-ngram-size",
         type=int,
         default=2,
-        help='Block repeated n-grams (default: 2)'
+        help="Block repeated n-grams (default: 2)",
     )
 
     # Output arguments
+    parser.add_argument("--output", type=str, help="Output JSON file for results")
     parser.add_argument(
-        '--output',
-        type=str,
-        help='Output JSON file for results'
-    )
-    parser.add_argument(
-        '--save-predictions',
-        action='store_true',
-        help='Save individual predictions in output file'
+        "--save-predictions",
+        action="store_true",
+        help="Save individual predictions in output file",
     )
 
     args = parser.parse_args()
@@ -418,9 +403,7 @@ Examples:
 
     # Initialize evaluator
     evaluator = MoonshineEvaluator(
-        model_path=args.model,
-        device=args.device,
-        fp16=args.fp16
+        model_path=args.model, device=args.device, fp16=args.fp16
     )
 
     # Evaluate
@@ -432,7 +415,7 @@ Examples:
         num_beams=args.num_beams,
         repetition_penalty=args.repetition_penalty,
         no_repeat_ngram_size=args.no_repeat_ngram_size,
-        save_predictions=args.save_predictions
+        save_predictions=args.save_predictions,
     )
 
     # Print results
@@ -458,7 +441,7 @@ Examples:
         output_path = Path(args.output)
         output_path.parent.mkdir(parents=True, exist_ok=True)
 
-        with open(output_path, 'w', encoding='utf-8') as f:
+        with open(output_path, "w", encoding="utf-8") as f:
             json.dump(results, f, ensure_ascii=False, indent=2)
 
         print(f"\nResults saved to: {output_path}")
@@ -468,4 +451,4 @@ Examples:
 
 if __name__ == "__main__":
     import sys
-    sys.exit(main())
+

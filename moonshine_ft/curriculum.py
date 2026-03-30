@@ -12,7 +12,8 @@ Key findings from paper:
 """
 
 from dataclasses import dataclass
-from typing import List, Optional, Dict, Any
+from typing import Any, Dict, List, Optional
+
 import datasets
 
 
@@ -35,6 +36,7 @@ class CurriculumPhase:
         no_repeat_ngram_size: Size of n-grams that cannot repeat
         target_wer: Target WER percentage for this phase
     """
+
     name: str
     min_duration: float
     max_duration: float
@@ -67,7 +69,7 @@ DEFAULT_CURRICULUM = [
         repetition_penalty=1.5,  # Higher penalty for short utterances
         num_beams=3,
         no_repeat_ngram_size=3,
-        target_wer=20.0
+        target_wer=20.0,
     ),
     CurriculumPhase(
         name="Phase 2: Medium Utterances (10-20s)",
@@ -82,7 +84,7 @@ DEFAULT_CURRICULUM = [
         repetition_penalty=1.2,
         num_beams=5,
         no_repeat_ngram_size=2,
-        target_wer=30.0
+        target_wer=30.0,
     ),
     CurriculumPhase(
         name="Phase 3: Full Range (4-30s, Bimodal)",
@@ -97,8 +99,8 @@ DEFAULT_CURRICULUM = [
         repetition_penalty=1.0,  # Allow natural speech patterns
         num_beams=5,
         no_repeat_ngram_size=0,  # Disable to allow valid repetitions
-        target_wer=25.0
-    )
+        target_wer=25.0,
+    ),
 ]
 
 
@@ -123,7 +125,9 @@ class CurriculumScheduler:
     def get_phase(self, phase_idx: int) -> CurriculumPhase:
         """Get phase configuration by index."""
         if phase_idx < 0 or phase_idx >= len(self.phases):
-            raise ValueError(f"Invalid phase index: {phase_idx}. Must be 0-{len(self.phases)-1}")
+            raise ValueError(
+                f"Invalid phase index: {phase_idx}. Must be 0-{len(self.phases)-1}"
+            )
         return self.phases[phase_idx]
 
     def get_current_phase(self) -> CurriculumPhase:
@@ -147,7 +151,7 @@ class CurriculumScheduler:
         dataset: datasets.Dataset,
         phase: CurriculumPhase,
         duration_column: str = "duration",
-        text_column: str = "sentence"
+        text_column: str = "sentence",
     ) -> datasets.Dataset:
         """
         Filter dataset based on phase criteria (duration and word count).
@@ -165,13 +169,14 @@ class CurriculumScheduler:
         Returns:
             Filtered dataset
         """
+
         def meets_criteria(duration, text):
             # Check duration constraint (primary filter)
             if duration < phase.min_duration or duration > phase.max_duration:
                 return False
 
             # Check word count constraint (if specified)
-            if phase.max_words is not None:
+            if phase.max_words is not None and text is not None:
                 word_count = len(text.split())
                 if word_count > phase.max_words:
                     return False
@@ -185,7 +190,9 @@ class CurriculumScheduler:
         very_short_pct = 100 * very_short / total_count if total_count > 0 else 0
 
         # Use input_columns to avoid decoding audio
-        filtered = dataset.filter(meets_criteria, input_columns=[duration_column, text_column])
+        filtered = dataset.filter(
+            meets_criteria, input_columns=[duration_column, text_column]
+        )
 
         print(f"\n{phase.name}:")
         print(f"  Duration range: [{phase.min_duration}s, {phase.max_duration}s]")
@@ -197,9 +204,13 @@ class CurriculumScheduler:
         # Warn about very short audio (paper finding)
         if very_short > 0:
             if very_short_pct < 0.5:
-                print(f"  [OK] Very short audio (<1s): {very_short} ({very_short_pct:.2f}%) - within paper recommendation (<0.5%)")
+                print(
+                    f"  [OK] Very short audio (<1s): {very_short} ({very_short_pct:.2f}%) - within paper recommendation (<0.5%)"
+                )
             else:
-                print(f"  [WARNING] Very short audio (<1s): {very_short} ({very_short_pct:.2f}%) - exceeds paper recommendation (<0.5%)")
+                print(
+                    f"  [WARNING] Very short audio (<1s): {very_short} ({very_short_pct:.2f}%) - exceeds paper recommendation (<0.5%)"
+                )
                 print(f"    Paper finding: <1s audio causes repetitions and >100% WER")
 
         # Calculate duration statistics for filtered dataset
@@ -208,11 +219,15 @@ class CurriculumScheduler:
             avg_duration = sum(durations) / len(durations)
             min_dur = min(durations)
             max_dur = max(durations)
-            print(f"  Duration stats: min={min_dur:.1f}s, max={max_dur:.1f}s, avg={avg_duration:.1f}s")
+            print(
+                f"  Duration stats: min={min_dur:.1f}s, max={max_dur:.1f}s, avg={avg_duration:.1f}s"
+            )
 
         return filtered
 
-    def get_training_args(self, phase: CurriculumPhase, base_args: Dict[str, Any]) -> Dict[str, Any]:
+    def get_training_args(
+        self, phase: CurriculumPhase, base_args: Dict[str, Any]
+    ) -> Dict[str, Any]:
         """
         Get training arguments for a phase.
 
@@ -224,12 +239,14 @@ class CurriculumScheduler:
             Updated training arguments
         """
         args = base_args.copy()
-        args.update({
-            'learning_rate': phase.learning_rate,
-            'max_steps': phase.max_steps,
-            'warmup_steps': phase.warmup_steps,
-            'label_smoothing_factor': phase.label_smoothing,
-        })
+        args.update(
+            {
+                "learning_rate": phase.learning_rate,
+                "max_steps": phase.max_steps,
+                "warmup_steps": phase.warmup_steps,
+                "label_smoothing_factor": phase.label_smoothing,
+            }
+        )
         return args
 
     def get_generation_config(self, phase: CurriculumPhase) -> Dict[str, Any]:
@@ -243,16 +260,16 @@ class CurriculumScheduler:
             Generation configuration dictionary
         """
         return {
-            'repetition_penalty': phase.repetition_penalty,
-            'num_beams': phase.num_beams,
-            'no_repeat_ngram_size': phase.no_repeat_ngram_size,
-            'length_penalty': 1.2,
-            'do_sample': False,
-            'early_stopping': True,
+            "repetition_penalty": phase.repetition_penalty,
+            "num_beams": phase.num_beams,
+            "no_repeat_ngram_size": phase.no_repeat_ngram_size,
+            "length_penalty": 1.2,
+            "do_sample": False,
+            "early_stopping": True,
         }
 
     @classmethod
-    def from_config(cls, config: Dict[str, Any]) -> 'CurriculumScheduler':
+    def from_config(cls, config: Dict[str, Any]) -> "CurriculumScheduler":
         """
         Create curriculum scheduler from configuration dictionary.
 
@@ -262,40 +279,42 @@ class CurriculumScheduler:
         Returns:
             Initialized CurriculumScheduler
         """
-        curriculum_config = config.get('curriculum', {})
+        curriculum_config = config.get("curriculum", {})
 
-        if not curriculum_config.get('enabled', True):
+        if not curriculum_config.get("enabled", True):
             # If curriculum is disabled, create single phase with full data
             # Use paper's recommended range [4, 30] seconds
-            phases = [CurriculumPhase(
-                name="Full Dataset Training (4-30s)",
-                description="Training on complete dataset without curriculum (paper range)",
-                min_duration=4.0,  # Paper minimum
-                max_duration=30.0,  # Paper maximum
-                max_words=None,
-                max_steps=config.get('training', {}).get('max_steps', 15000),
-                learning_rate=config.get('training', {}).get('learning_rate', 1e-5),
-                warmup_steps=config.get('training', {}).get('warmup_steps', 500),
-            )]
+            phases = [
+                CurriculumPhase(
+                    name="Full Dataset Training (4-30s)",
+                    description="Training on complete dataset without curriculum (paper range)",
+                    min_duration=4.0,  # Paper minimum
+                    max_duration=30.0,  # Paper maximum
+                    max_words=None,
+                    max_steps=config.get("training", {}).get("max_steps", 15000),
+                    learning_rate=config.get("training", {}).get("learning_rate", 1e-5),
+                    warmup_steps=config.get("training", {}).get("warmup_steps", 500),
+                )
+            ]
             return cls(phases)
 
         # Parse phases from config
         phases = []
-        for phase_config in curriculum_config.get('phases', []):
+        for phase_config in curriculum_config.get("phases", []):
             phase = CurriculumPhase(
-                name=phase_config.get('name', 'Unnamed Phase'),
-                description=phase_config.get('description', ''),
-                min_duration=phase_config.get('min_duration', 4.0),
-                max_duration=phase_config.get('max_duration', 30.0),
-                max_words=phase_config.get('max_words'),
-                max_steps=phase_config.get('max_steps', 5000),
-                learning_rate=phase_config.get('learning_rate', 1e-5),
-                warmup_steps=phase_config.get('warmup_steps', 500),
-                label_smoothing=phase_config.get('label_smoothing', 0.1),
-                repetition_penalty=phase_config.get('repetition_penalty', 1.2),
-                num_beams=phase_config.get('num_beams', 5),
-                no_repeat_ngram_size=phase_config.get('no_repeat_ngram_size', 2),
-                target_wer=phase_config.get('target_wer', 25.0),
+                name=phase_config.get("name", "Unnamed Phase"),
+                description=phase_config.get("description", ""),
+                min_duration=phase_config.get("min_duration", 4.0),
+                max_duration=phase_config.get("max_duration", 30.0),
+                max_words=phase_config.get("max_words"),
+                max_steps=phase_config.get("max_steps", 5000),
+                learning_rate=phase_config.get("learning_rate", 1e-5),
+                warmup_steps=phase_config.get("warmup_steps", 500),
+                label_smoothing=phase_config.get("label_smoothing", 0.1),
+                repetition_penalty=phase_config.get("repetition_penalty", 1.2),
+                num_beams=phase_config.get("num_beams", 5),
+                no_repeat_ngram_size=phase_config.get("no_repeat_ngram_size", 2),
+                target_wer=phase_config.get("target_wer", 25.0),
             )
             phases.append(phase)
 
@@ -307,15 +326,15 @@ class CurriculumScheduler:
 
     def print_summary(self):
         """Print summary of curriculum learning strategy."""
-        print("\n" + "="*80)
+        print("\n" + "=" * 80)
         print("CURRICULUM LEARNING STRATEGY")
-        print("="*80)
+        print("=" * 80)
         print(f"Based on Moonshine paper (arXiv:2410.15608v2) recommendations:")
         print(f"  - Training instance duration: [4, 30] seconds")
         print(f"  - Bimodal distribution (naturally emerges)")
         print(f"  - <0.5% of data should be <1s (avoids repetition problems)")
         print(f"\nNumber of phases: {len(self.phases)}")
-        print("="*80)
+        print("=" * 80)
 
         for i, phase in enumerate(self.phases, 1):
             print(f"\n{phase.name}")
@@ -326,4 +345,4 @@ class CurriculumScheduler:
             print(f"  Learning rate: {phase.learning_rate}")
             print(f"  Target WER: <{phase.target_wer}%")
 
-        print("="*80 + "\n")
+        print("=" * 80 + "\n")

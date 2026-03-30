@@ -7,8 +7,8 @@ First implementation of fine-tuning for the Moonshine ASR model using curriculum
 __version__ = "0.1.0"
 __author__ = "Your Name"
 
+from .curriculum import CurriculumPhase, CurriculumScheduler
 from .data_loader import MoonshineDataLoader
-from .curriculum import CurriculumScheduler, CurriculumPhase
 
 __all__ = [
     "MoonshineDataLoader",

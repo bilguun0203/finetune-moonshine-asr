@@ -8,10 +8,11 @@ Supports:
 - Local datasets saved with save_to_disk()
 """
 
-from datasets import load_dataset, DatasetDict, Dataset, Audio, load_from_disk
-from typing import Optional, Union, Dict, Any
-import pandas as pd
 from pathlib import Path
+from typing import Any, Dict, Optional, Union
+
+import pandas as pd
+from datasets import Audio, Dataset, DatasetDict, load_dataset, load_from_disk
 
 
 class MoonshineDataLoader:
@@ -22,9 +23,7 @@ class MoonshineDataLoader:
     """
 
     def __init__(
-        self,
-        config: Optional[Dict[str, Any]] = None,
-        sampling_rate: int = 16000
+        self, config: Optional[Dict[str, Any]] = None, sampling_rate: int = 16000
     ):
         """
         Initialize data loader.
@@ -43,7 +42,7 @@ class MoonshineDataLoader:
         train_split: str = "train+validation",
         test_split: str = "test",
         cache_dir: Optional[str] = None,
-        use_auth_token: bool = True
+        use_auth_token: bool = True,
     ) -> DatasetDict:
         """
         Load Common Voice dataset.
@@ -74,7 +73,7 @@ class MoonshineDataLoader:
             language,
             split=train_split,
             cache_dir=cache_dir,
-            token=use_auth_token
+            token=use_auth_token,
         )
 
         # Load test split
@@ -83,7 +82,7 @@ class MoonshineDataLoader:
             language,
             split=test_split,
             cache_dir=cache_dir,
-            token=use_auth_token
+            token=use_auth_token,
         )
 
         # Select only needed columns
@@ -92,8 +91,7 @@ class MoonshineDataLoader:
 
         # Cast audio to target sampling rate
         common_voice = common_voice.cast_column(
-            "audio",
-            Audio(sampling_rate=self.sampling_rate)
+            "audio", Audio(sampling_rate=self.sampling_rate)
         )
 
         print(f"\nDataset loaded:")
@@ -103,7 +101,9 @@ class MoonshineDataLoader:
         # Calculate total duration
         train_duration = sum(
             len(sample["audio"]["array"]) / sample["audio"]["sampling_rate"]
-            for sample in common_voice["train"].select(range(min(1000, len(common_voice["train"]))))
+            for sample in common_voice["train"].select(
+                range(min(1000, len(common_voice["train"])))
+            )
         )
         avg_duration = train_duration / min(1000, len(common_voice["train"]))
         estimated_total = avg_duration * len(common_voice["train"]) / 3600
@@ -118,7 +118,7 @@ class MoonshineDataLoader:
         test_csv: str,
         audio_column: str = "audio_path",
         text_column: str = "transcription",
-        base_path: Optional[str] = None
+        base_path: Optional[str] = None,
     ) -> DatasetDict:
         """
         Load dataset from CSV files.
@@ -157,14 +157,12 @@ class MoonshineDataLoader:
             )
 
         # Rename columns to standard names
-        train_df = train_df.rename(columns={
-            audio_column: "audio",
-            text_column: "sentence"
-        })
-        test_df = test_df.rename(columns={
-            audio_column: "audio",
-            text_column: "sentence"
-        })
+        train_df = train_df.rename(
+            columns={audio_column: "audio", text_column: "sentence"}
+        )
+        test_df = test_df.rename(
+            columns={audio_column: "audio", text_column: "sentence"}
+        )
 
         # Convert to datasets
         train_dataset = Dataset.from_pandas(train_df[["audio", "sentence"]])
@@ -172,18 +170,13 @@ class MoonshineDataLoader:
 
         # Cast audio column to Audio type
         train_dataset = train_dataset.cast_column(
-            "audio",
-            Audio(sampling_rate=self.sampling_rate)
+            "audio", Audio(sampling_rate=self.sampling_rate)
         )
         test_dataset = test_dataset.cast_column(
-            "audio",
-            Audio(sampling_rate=self.sampling_rate)
+            "audio", Audio(sampling_rate=self.sampling_rate)
         )
 
-        dataset_dict = DatasetDict({
-            "train": train_dataset,
-            "test": test_dataset
-        })
+        dataset_dict = DatasetDict({"train": train_dataset, "test": test_dataset})
 
         print(f"\nDataset loaded:")
         print(f"  Train samples: {len(train_dataset):,}")
@@ -192,9 +185,7 @@ class MoonshineDataLoader:
         return dataset_dict
 
     def load_librispeech(
-        self,
-        subset: str = "clean",
-        cache_dir: Optional[str] = None
+        self, subset: str = "clean", cache_dir: Optional[str] = None
     ) -> DatasetDict:
         """
         Load LibriSpeech dataset.
@@ -221,17 +212,11 @@ class MoonshineDataLoader:
         librispeech = DatasetDict()
 
         librispeech["train"] = load_dataset(
-            "librispeech_asr",
-            "clean",
-            split=train_split,
-            cache_dir=cache_dir
+            "librispeech_asr", "clean", split=train_split, cache_dir=cache_dir
         )
 
         librispeech["test"] = load_dataset(
-            "librispeech_asr",
-            "clean",
-            split=test_split,
-            cache_dir=cache_dir
+            "librispeech_asr", "clean", split=test_split, cache_dir=cache_dir
         )
 
         # Rename columns to match Common Voice format
@@ -239,8 +224,7 @@ class MoonshineDataLoader:
 
         # Cast audio to target sampling rate
         librispeech = librispeech.cast_column(
-            "audio",
-            Audio(sampling_rate=self.sampling_rate)
+            "audio", Audio(sampling_rate=self.sampling_rate)
         )
 
         print(f"\nDataset loaded:")
@@ -254,7 +238,7 @@ class MoonshineDataLoader:
         language: str = "french",
         split_train: str = "train",
         split_test: str = "test",
-        cache_dir: Optional[str] = None
+        cache_dir: Optional[str] = None,
     ) -> DatasetDict:
         """
         Load Multilingual LibriSpeech (MLS) dataset.
@@ -276,24 +260,21 @@ class MoonshineDataLoader:
             "facebook/multilingual_librispeech",
             language,
             split=split_train,
-            cache_dir=cache_dir
+            cache_dir=cache_dir,
         )
 
         mls["test"] = load_dataset(
             "facebook/multilingual_librispeech",
             language,
             split=split_test,
-            cache_dir=cache_dir
+            cache_dir=cache_dir,
         )
 
         # Rename columns to match Common Voice format
         mls = mls.rename_column("transcript", "sentence")
 
         # Cast audio to target sampling rate
-        mls = mls.cast_column(
-            "audio",
-            Audio(sampling_rate=self.sampling_rate)
-        )
+        mls = mls.cast_column("audio", Audio(sampling_rate=self.sampling_rate))
 
         print(f"\nDataset loaded:")
         print(f"  Train samples: {len(mls['train']):,}")
@@ -301,11 +282,7 @@ class MoonshineDataLoader:
 
         return mls
 
-    def load_local(
-        self,
-        path: str,
-        text_column: str = "transcript"
-    ) -> DatasetDict:
+    def load_local(self, path: str, text_column: str = "transcript") -> DatasetDict:
         """
         Load dataset from local directory (saved with save_to_disk()).
 
@@ -328,11 +305,18 @@ class MoonshineDataLoader:
             print(f"  Test samples: {len(dataset['test']):,}")
 
             # Rename text column if needed
-            if text_column != "sentence" and text_column in dataset["train"].column_names:
-                dataset = DatasetDict({
-                    "train": dataset["train"].rename_column(text_column, "sentence"),
-                    "test": dataset["test"].rename_column(text_column, "sentence")
-                })
+            if (
+                text_column != "sentence"
+                and text_column in dataset["train"].column_names
+            ):
+                dataset = DatasetDict(
+                    {
+                        "train": dataset["train"].rename_column(
+                            text_column, "sentence"
+                        ),
+                        "test": dataset["test"].rename_column(text_column, "sentence"),
+                    }
+                )
 
         else:
             # Single dataset - should have been split already
@@ -344,14 +328,13 @@ class MoonshineDataLoader:
         # Cast audio to target sampling rate if needed
         if "audio" in dataset["train"].column_names:
             dataset = dataset.cast_column(
-                "audio",
-                Audio(sampling_rate=self.sampling_rate)
+                "audio", Audio(sampling_rate=self.sampling_rate)
             )
 
         return dataset
 
     @classmethod
-    def from_config(cls, config: Dict[str, Any]) -> 'MoonshineDataLoader':
+    def from_config(cls, config: Dict[str, Any]) -> "MoonshineDataLoader":
         """
         Create data loader from configuration dictionary.
 
@@ -361,8 +344,8 @@ class MoonshineDataLoader:
         Returns:
             Initialized MoonshineDataLoader
         """
-        dataset_config = config.get('dataset', {})
-        sampling_rate = config.get('audio', {}).get('sampling_rate', 16000)
+        dataset_config = config.get("dataset", {})
+        sampling_rate = config.get("audio", {}).get("sampling_rate", 16000)
 
         return cls(config=config, sampling_rate=sampling_rate)
 
@@ -373,51 +356,48 @@ class MoonshineDataLoader:
         Returns:
             DatasetDict with 'train' and 'test' splits
         """
-        dataset_config = self.config.get('dataset', {})
-        dataset_type = dataset_config.get('type', 'common_voice')
+        dataset_config = self.config.get("dataset", {})
+        dataset_type = dataset_config.get("type", "common_voice")
 
-        if dataset_type == 'common_voice':
+        if dataset_type == "common_voice":
             return self.load_common_voice(
-                language=dataset_config.get('language', 'en'),
-                version=dataset_config.get('version', '13_0'),
-                train_split=dataset_config.get('train_split', 'train+validation'),
-                test_split=dataset_config.get('test_split', 'test'),
-                cache_dir=dataset_config.get('cache_dir'),
-                use_auth_token=dataset_config.get('use_auth_token', True)
+                language=dataset_config.get("language", "en"),
+                version=dataset_config.get("version", "13_0"),
+                train_split=dataset_config.get("train_split", "train+validation"),
+                test_split=dataset_config.get("test_split", "test"),
+                cache_dir=dataset_config.get("cache_dir"),
+                use_auth_token=dataset_config.get("use_auth_token", True),
             )
-        elif dataset_type == 'csv':
+        elif dataset_type == "csv":
             return self.load_from_csv(
-                train_csv=dataset_config.get('train_csv'),
-                test_csv=dataset_config.get('test_csv'),
-                audio_column=dataset_config.get('audio_column', 'audio_path'),
-                text_column=dataset_config.get('text_column', 'transcription'),
-                base_path=dataset_config.get('base_path')
+                train_csv=dataset_config.get("train_csv"),
+                test_csv=dataset_config.get("test_csv"),
+                audio_column=dataset_config.get("audio_column", "audio_path"),
+                text_column=dataset_config.get("text_column", "transcription"),
+                base_path=dataset_config.get("base_path"),
             )
-        elif dataset_type == 'librispeech':
+        elif dataset_type == "librispeech":
             return self.load_librispeech(
-                subset=dataset_config.get('subset', 'clean'),
-                cache_dir=dataset_config.get('cache_dir')
+                subset=dataset_config.get("subset", "clean"),
+                cache_dir=dataset_config.get("cache_dir"),
             )
-        elif dataset_type == 'mls':
+        elif dataset_type == "mls":
             return self.load_mls(
-                language=dataset_config.get('language', 'french'),
-                split_train=dataset_config.get('split_train', 'train'),
-                split_test=dataset_config.get('split_test', 'test'),
-                cache_dir=dataset_config.get('cache_dir')
+                language=dataset_config.get("language", "french"),
+                split_train=dataset_config.get("split_train", "train"),
+                split_test=dataset_config.get("split_test", "test"),
+                cache_dir=dataset_config.get("cache_dir"),
             )
-        elif dataset_type == 'local':
+        elif dataset_type == "local":
             return self.load_local(
-                path=dataset_config.get('path'),
-                text_column=dataset_config.get('text_column', 'transcript')
+                path=dataset_config.get("path"),
+                text_column=dataset_config.get("text_column", "transcript"),
             )
         else:
             raise ValueError(f"Unknown dataset type: {dataset_type}")
 
     def prepare_dataset(
-        self,
-        dataset: Dataset,
-        processor,
-        text_column: str = "sentence"
+        self, dataset: Dataset, processor, text_column: str = "sentence"
     ) -> Dataset:
         """
         Prepare dataset for training (feature extraction and tokenization).
@@ -430,6 +410,7 @@ class MoonshineDataLoader:
         Returns:
             Processed dataset with input_values, labels, and duration
         """
+
         def prepare_example(batch):
             # Process audio
             audio = batch["audio"]
@@ -437,14 +418,13 @@ class MoonshineDataLoader:
             inputs = processor(
                 audio["array"],
                 sampling_rate=audio["sampling_rate"],
-                return_tensors="pt"
+                return_tensors="pt",
             )
             batch["input_values"] = inputs.input_values[0]
 
             # Tokenize text (no BOS, add EOS)
             labels = processor.tokenizer(
-                batch[text_column],
-                add_special_tokens=False
+                batch[text_column], add_special_tokens=False
             ).input_ids
             batch["labels"] = labels + [2]  # Add EOS token
 
@@ -456,10 +436,16 @@ class MoonshineDataLoader:
 
         print("\nPreparing dataset (feature extraction + tokenization)...")
 
+        dataset = dataset.filter(
+            lambda x: x["audio"] is not None
+            and x[text_column] is not None
+            and x[text_column].strip() != ""
+        )
+
         prepared = dataset.map(
             prepare_example,
             remove_columns=dataset.column_names,
-            num_proc=self.config.get('preprocessing', {}).get('num_proc', 4)
+            num_proc=self.config.get("preprocessing", {}).get("num_proc", 4),
         )
 
         print(f"  Processed {len(prepared):,} samples")
@@ -467,10 +453,7 @@ class MoonshineDataLoader:
         return prepared
 
     def filter_by_duration(
-        self,
-        dataset: Dataset,
-        max_duration: float = 30.0,
-        min_duration: float = 0.1
+        self, dataset: Dataset, max_duration: float = 30.0, min_duration: float = 0.1
     ) -> Dataset:
         """
         Filter dataset by audio duration.
@@ -484,7 +467,9 @@ class MoonshineDataLoader:
             Filtered dataset
         """
         # Determine which duration column exists
-        duration_col = 'duration' if 'duration' in dataset.column_names else 'audio_duration'
+        duration_col = (
+            "duration" if "duration" in dataset.column_names else "audio_duration"
+        )
 
         def is_valid_duration(duration):
             # When using input_columns, we receive the column value directly

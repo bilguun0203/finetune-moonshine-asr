@@ -41,12 +41,9 @@ from pathlib import Path
 from typing import Optional
 
 import torch
-from transformers import (
-    MoonshineForConditionalGeneration,
-    AutoProcessor
-)
 from optimum.exporters.onnx import main_export
 from optimum.onnx.graph_transformations import merge_decoders
+from transformers import AutoProcessor, MoonshineForConditionalGeneration
 
 
 class ModelConverter:
@@ -63,7 +60,7 @@ class ModelConverter:
         skip_merged_decoder: bool = False,
         skip_tokenizer_bin: bool = False,
         skip_ort_conversion: bool = False,
-        target_platform: Optional[str] = None
+        target_platform: Optional[str] = None,
     ):
         """
         Initialize converter.
@@ -119,7 +116,9 @@ class ModelConverter:
         print(f"Current vocab size: {current_vocab_size}")
 
         if current_vocab_size >= self.target_vocab_size:
-            print(f"Tokenizer already has {current_vocab_size} tokens (>= {self.target_vocab_size})")
+            print(
+                f"Tokenizer already has {current_vocab_size} tokens (>= {self.target_vocab_size})"
+            )
             print("Skipping extension.")
             return True
 
@@ -134,20 +133,20 @@ class ModelConverter:
             self.tokenizer_extended_dir.mkdir(parents=True, exist_ok=True)
 
             tokenizer_json_path = self.model_path / "tokenizer.json"
-            with open(tokenizer_json_path, 'r', encoding='utf-8') as f:
+            with open(tokenizer_json_path, "r", encoding="utf-8") as f:
                 tokenizer_data = json.load(f)
 
-            vocab = tokenizer_data['model']['vocab']
+            vocab = tokenizer_data["model"]["vocab"]
             tokens_to_add = self.target_vocab_size - len(vocab)
             max_id = max(vocab.values())
 
             for i in range(tokens_to_add):
                 vocab[f"<reserved_{i}>"] = max_id + 1 + i
 
-            tokenizer_data['model']['vocab'] = vocab
+            tokenizer_data["model"]["vocab"] = vocab
 
             output_json = self.tokenizer_extended_dir / "tokenizer.json"
-            with open(output_json, 'w', encoding='utf-8') as f:
+            with open(output_json, "w", encoding="utf-8") as f:
                 json.dump(tokenizer_data, f, ensure_ascii=False, indent=2)
 
             # Copy other files
@@ -162,9 +161,12 @@ class ModelConverter:
         cmd = [
             sys.executable,
             str(script_path),
-            "--model", str(self.model_path),
-            "--output", str(self.tokenizer_extended_dir),
-            "--target-size", str(self.target_vocab_size)
+            "--model",
+            str(self.model_path),
+            "--output",
+            str(self.tokenizer_extended_dir),
+            "--target-size",
+            str(self.target_vocab_size),
         ]
 
         result = subprocess.run(cmd, capture_output=False)
@@ -209,7 +211,9 @@ class ModelConverter:
             processor.save_pretrained(str(self.model_resized_dir))
             return True
 
-        print(f"Resizing embeddings from {current_vocab_size} to {tokenizer_vocab_size}...")
+        print(
+            f"Resizing embeddings from {current_vocab_size} to {tokenizer_vocab_size}..."
+        )
 
         # Resize
         model.resize_token_embeddings(tokenizer_vocab_size)
@@ -231,7 +235,9 @@ class ModelConverter:
         model.save_pretrained(str(self.model_resized_dir))
         processor.save_pretrained(str(self.model_resized_dir))
 
-        print(f"[OK] Model resized: {current_vocab_size} → {tokenizer_vocab_size} tokens")
+        print(
+            f"[OK] Model resized: {current_vocab_size} → {tokenizer_vocab_size} tokens"
+        )
         return True
 
     def export_to_onnx(self) -> bool:
@@ -264,15 +270,27 @@ class ModelConverter:
         decoder_path = self.onnx_dir / "decoder_model.onnx"
         decoder_with_past_path = self.onnx_dir / "decoder_with_past_model.onnx"
 
-        if not all([encoder_path.exists(), decoder_path.exists(), decoder_with_past_path.exists()]):
+        if not all(
+            [
+                encoder_path.exists(),
+                decoder_path.exists(),
+                decoder_with_past_path.exists(),
+            ]
+        ):
             print("Error: Expected ONNX files not generated!")
             return False
 
         print(f"\n[OK] ONNX export successful!")
         print(f"Generated files:")
-        print(f"  - encoder_model.onnx ({encoder_path.stat().st_size / 1024 / 1024:.1f} MB)")
-        print(f"  - decoder_model.onnx ({decoder_path.stat().st_size / 1024 / 1024:.1f} MB)")
-        print(f"  - decoder_with_past_model.onnx ({decoder_with_past_path.stat().st_size / 1024 / 1024:.1f} MB)")
+        print(
+            f"  - encoder_model.onnx ({encoder_path.stat().st_size / 1024 / 1024:.1f} MB)"
+        )
+        print(
+            f"  - decoder_model.onnx ({decoder_path.stat().st_size / 1024 / 1024:.1f} MB)"
+        )
+        print(
+            f"  - decoder_with_past_model.onnx ({decoder_with_past_path.stat().st_size / 1024 / 1024:.1f} MB)"
+        )
 
         return True
 
@@ -308,7 +326,7 @@ class ModelConverter:
             graph_name="merged_decoder",
             producer_name="moonshine-fine-tuned",
             save_path=str(merged_decoder_path),
-            strict=False  # Moonshine has cross-attention differences
+            strict=False,  # Moonshine has cross-attention differences
         )
 
         # Copy encoder and config files
@@ -316,14 +334,22 @@ class ModelConverter:
         if encoder_path.exists():
             shutil.copy(encoder_path, self.onnx_merged_dir / "encoder_model.onnx")
 
-        for config_file in ["config.json", "generation_config.json", "preprocessor_config.json",
-                           "tokenizer.json", "tokenizer_config.json", "special_tokens_map.json"]:
+        for config_file in [
+            "config.json",
+            "generation_config.json",
+            "preprocessor_config.json",
+            "tokenizer.json",
+            "tokenizer_config.json",
+            "special_tokens_map.json",
+        ]:
             src = self.onnx_dir / config_file
             if src.exists():
                 shutil.copy(src, self.onnx_merged_dir / config_file)
 
         print(f"\n[OK] Merged decoder created!")
-        print(f"  - decoder_model_merged.onnx ({merged_decoder_path.stat().st_size / 1024 / 1024:.1f} MB)")
+        print(
+            f"  - decoder_model_merged.onnx ({merged_decoder_path.stat().st_size / 1024 / 1024:.1f} MB)"
+        )
 
         return True
 
@@ -341,7 +367,9 @@ class ModelConverter:
         tokenizer_json = self.onnx_merged_dir / "tokenizer.json"
 
         if not tokenizer_json.exists():
-            print(f"Warning: {tokenizer_json} not found, skipping tokenizer binarization")
+            print(
+                f"Warning: {tokenizer_json} not found, skipping tokenizer binarization"
+            )
             return True
 
         tokenizer_bin = self.onnx_merged_dir / "tokenizer.bin"
@@ -358,7 +386,8 @@ class ModelConverter:
             sys.executable,
             str(script_path),
             str(tokenizer_json),
-            "--output", str(tokenizer_bin)
+            "--output",
+            str(tokenizer_bin),
         ]
 
         result = subprocess.run(cmd, capture_output=True, text=True)
@@ -394,10 +423,14 @@ class ModelConverter:
 
             # Direct conversion using onnxruntime
             cmd = [
-                sys.executable, "-m", "onnxruntime.tools.convert_onnx_models_to_ort",
+                sys.executable,
+                "-m",
+                "onnxruntime.tools.convert_onnx_models_to_ort",
                 str(self.onnx_merged_dir),
-                "--output_dir", str(self.ort_dir),
-                "--optimization_style", "Fixed"
+                "--output_dir",
+                str(self.ort_dir),
+                "--optimization_style",
+                "Fixed",
             ]
 
             if self.target_platform:
@@ -411,8 +444,10 @@ class ModelConverter:
             sys.executable,
             str(script_path),
             str(self.onnx_merged_dir),
-            "--output-dir", str(self.ort_dir),
-            "--optimization-style", "Fixed"
+            "--output-dir",
+            str(self.ort_dir),
+            "--optimization-style",
+            "Fixed",
         ]
 
         if self.target_platform:
@@ -511,7 +546,7 @@ class ModelConverter:
 
 def main():
     parser = argparse.ArgumentParser(
-        description='Complete Moonshine model conversion pipeline',
+        description="Complete Moonshine model conversion pipeline",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
@@ -534,65 +569,58 @@ Examples:
   python convert_for_deployment.py \\
       --model ./model --output ./deployment \\
       --skip-merged-decoder --skip-ort-conversion
-        """
+        """,
     )
 
     parser.add_argument(
-        '--model',
-        type=str,
-        required=True,
-        help='Path to trained model directory'
+        "--model", type=str, required=True, help="Path to trained model directory"
     )
     parser.add_argument(
-        '--output',
+        "--output",
         type=str,
         required=True,
-        help='Output directory for converted models'
+        help="Output directory for converted models",
     )
     parser.add_argument(
-        '--target-vocab-size',
+        "--target-vocab-size",
         type=int,
         default=32768,
-        help='Target vocabulary size (default: 32768)'
+        help="Target vocabulary size (default: 32768)",
     )
 
     # Step control
     parser.add_argument(
-        '--skip-tokenizer-extension',
-        action='store_true',
-        help='Skip tokenizer vocabulary extension'
+        "--skip-tokenizer-extension",
+        action="store_true",
+        help="Skip tokenizer vocabulary extension",
     )
     parser.add_argument(
-        '--skip-embedding-resize',
-        action='store_true',
-        help='Skip model embedding resizing'
+        "--skip-embedding-resize",
+        action="store_true",
+        help="Skip model embedding resizing",
     )
     parser.add_argument(
-        '--skip-onnx-export',
-        action='store_true',
-        help='Skip ONNX export (use existing ONNX files)'
+        "--skip-onnx-export",
+        action="store_true",
+        help="Skip ONNX export (use existing ONNX files)",
     )
     parser.add_argument(
-        '--skip-merged-decoder',
-        action='store_true',
-        help='Skip merged decoder creation'
+        "--skip-merged-decoder",
+        action="store_true",
+        help="Skip merged decoder creation",
     )
     parser.add_argument(
-        '--skip-tokenizer-bin',
-        action='store_true',
-        help='Skip tokenizer binarization'
+        "--skip-tokenizer-bin", action="store_true", help="Skip tokenizer binarization"
     )
     parser.add_argument(
-        '--skip-ort-conversion',
-        action='store_true',
-        help='Skip ORT format conversion'
+        "--skip-ort-conversion", action="store_true", help="Skip ORT format conversion"
     )
 
     # ORT options
     parser.add_argument(
-        '--target-platform',
-        choices=['arm', 'amd64'],
-        help='Target platform for ORT optimization'
+        "--target-platform",
+        choices=["arm", "amd64"],
+        help="Target platform for ORT optimization",
     )
 
     args = parser.parse_args()
@@ -607,7 +635,7 @@ Examples:
         skip_merged_decoder=args.skip_merged_decoder,
         skip_tokenizer_bin=args.skip_tokenizer_bin,
         skip_ort_conversion=args.skip_ort_conversion,
-        target_platform=args.target_platform
+        target_platform=args.target_platform,
     )
 
     success = converter.run()

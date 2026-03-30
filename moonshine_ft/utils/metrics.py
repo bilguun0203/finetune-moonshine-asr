@@ -2,9 +2,10 @@
 Evaluation metrics for ASR models.
 """
 
+from typing import List, Tuple
+
 import evaluate
 import numpy as np
-from typing import List, Tuple
 
 
 def compute_wer(predictions: List[str], references: List[str]) -> float:
@@ -18,7 +19,7 @@ def compute_wer(predictions: List[str], references: List[str]) -> float:
     Returns:
         WER as a percentage (0-100)
     """
-    metric = evaluate.load('wer')
+    metric = evaluate.load("wer")
 
     # Handle empty strings
     pred_empty = np.array([p.strip() == "" for p in predictions])
@@ -32,7 +33,7 @@ def compute_wer(predictions: List[str], references: List[str]) -> float:
     if np.any(non_empty):
         non_empty_wer = metric.compute(
             predictions=np.array(predictions)[non_empty].tolist(),
-            references=np.array(references)[non_empty].tolist()
+            references=np.array(references)[non_empty].tolist(),
         )
         wer_scores[non_empty] = non_empty_wer
 
@@ -50,7 +51,7 @@ def compute_cer(predictions: List[str], references: List[str]) -> float:
     Returns:
         CER as a percentage (0-100)
     """
-    metric = evaluate.load('cer')
+    metric = evaluate.load("cer")
 
     # Handle empty strings
     pred_empty = np.array([p.strip() == "" for p in predictions])
@@ -64,17 +65,14 @@ def compute_cer(predictions: List[str], references: List[str]) -> float:
     if np.any(non_empty):
         non_empty_cer = metric.compute(
             predictions=np.array(predictions)[non_empty].tolist(),
-            references=np.array(references)[non_empty].tolist()
+            references=np.array(references)[non_empty].tolist(),
         )
         cer_scores[non_empty] = non_empty_cer
 
     return 100 * np.mean(cer_scores)
 
 
-def compute_detailed_metrics(
-    predictions: List[str],
-    references: List[str]
-) -> dict:
+def compute_detailed_metrics(predictions: List[str], references: List[str]) -> dict:
     """
     Compute detailed evaluation metrics.
 
@@ -89,7 +87,7 @@ def compute_detailed_metrics(
     cer = compute_cer(predictions, references)
 
     # Compute per-sample WER
-    wer_metric = evaluate.load('wer')
+    wer_metric = evaluate.load("wer")
     individual_wers = []
     for pred, ref in zip(predictions, references):
         if ref.strip() == "" and pred.strip() == "":
@@ -101,12 +99,12 @@ def compute_detailed_metrics(
         individual_wers.append(individual_wer)
 
     return {
-        'wer': wer,
-        'cer': cer,
-        'individual_wers': individual_wers,
-        'mean_wer': np.mean(individual_wers) * 100,
-        'median_wer': np.median(individual_wers) * 100,
-        'std_wer': np.std(individual_wers) * 100,
-        'num_samples': len(predictions),
-        'perfect_predictions': sum(1 for w in individual_wers if w == 0),
+        "wer": wer,
+        "cer": cer,
+        "individual_wers": individual_wers,
+        "mean_wer": np.mean(individual_wers) * 100,
+        "median_wer": np.median(individual_wers) * 100,
+        "std_wer": np.std(individual_wers) * 100,
+        "num_samples": len(predictions),
+        "perfect_predictions": sum(1 for w in individual_wers if w == 0),
     }

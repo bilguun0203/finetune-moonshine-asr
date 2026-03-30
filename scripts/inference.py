@@ -31,18 +31,16 @@ import time
 from pathlib import Path
 from typing import Dict, List, Optional, Union
 
+import numpy as np
 import torch
 import torchaudio
-import numpy as np
-from transformers import (
-    MoonshineForConditionalGeneration,
-    AutoProcessor
-)
+from transformers import MoonshineForConditionalGeneration, AutoProcessor
 from tqdm import tqdm
 
 # Live mode dependencies (optional)
 try:
     import sounddevice as sd
+
     SOUNDDEVICE_AVAILABLE = True
 except ImportError:
     SOUNDDEVICE_AVAILABLE = False
@@ -51,6 +49,7 @@ except ImportError:
 # ONNX Runtime dependencies (optional)
 try:
     import onnxruntime as ort
+
     ONNX_AVAILABLE = True
 except ImportError:
     ONNX_AVAILABLE = False
@@ -58,6 +57,7 @@ except ImportError:
 
 try:
     from optimum.onnxruntime import ORTModelForSpeechSeq2Seq
+
     OPTIMUM_AVAILABLE = True
 except ImportError:
     OPTIMUM_AVAILABLE = False
@@ -133,18 +133,18 @@ class ManualONNXInference:
         self.model_dir = Path(model_dir)
 
         # Find ONNX files
-        encoder_path = self.model_dir / 'encoder_model.onnx'
-        decoder_path = self.model_dir / 'decoder_model.onnx'
+        encoder_path = self.model_dir / "encoder_model.onnx"
+        decoder_path = self.model_dir / "decoder_model.onnx"
 
         # Check for alternate names
         if not encoder_path.exists():
-            encoder_path = self.model_dir / 'encoder.onnx'
+            encoder_path = self.model_dir / "encoder.onnx"
         if not decoder_path.exists():
-            alt_decoder = self.model_dir / 'decoder.onnx'
+            alt_decoder = self.model_dir / "decoder.onnx"
             if alt_decoder.exists():
                 decoder_path = alt_decoder
             else:
-                decoder_path = self.model_dir / 'decoder_model_merged.onnx'
+                decoder_path = self.model_dir / "decoder_model_merged.onnx"
 
         if not encoder_path.exists():
             raise FileNotFoundError(f"Encoder not found at {encoder_path}")
@@ -162,7 +162,9 @@ class ManualONNXInference:
             self.processor = AutoProcessor.from_pretrained(str(self.model_dir))
         except Exception:
             print("Loading processor from base model")
-            self.processor = AutoProcessor.from_pretrained("UsefulSensors/moonshine-tiny")
+            self.processor = AutoProcessor.from_pretrained(
+                "UsefulSensors/moonshine-tiny"
+            )
 
         # Token IDs
         self.bos_token_id = 1
@@ -174,25 +176,25 @@ class ManualONNXInference:
     def encode(self, audio_array: np.ndarray, sampling_rate: int = 16000) -> np.ndarray:
         """Encode audio to hidden states."""
         inputs = self.processor(
-            audio_array,
-            sampling_rate=sampling_rate,
-            return_tensors="np"
+            audio_array, sampling_rate=sampling_rate, return_tensors="np"
         )
         input_values = inputs.input_values
 
         # Get encoder input names
         encoder_inputs = {inp.name: None for inp in self.encoder_session.get_inputs()}
 
-        if 'input_values' in encoder_inputs:
-            encoder_inputs['input_values'] = input_values
-        elif 'input_features' in encoder_inputs:
-            encoder_inputs['input_features'] = input_values
+        if "input_values" in encoder_inputs:
+            encoder_inputs["input_values"] = input_values
+        elif "input_features" in encoder_inputs:
+            encoder_inputs["input_features"] = input_values
 
         # Run encoder
         encoder_outputs = self.encoder_session.run(None, encoder_inputs)
         return encoder_outputs[0]
 
-    def decode_greedy(self, encoder_hidden_states: np.ndarray, max_new_tokens: int = 50) -> np.ndarray:
+    def decode_greedy(
+        self, encoder_hidden_states: np.ndarray, max_new_tokens: int = 50
+    ) -> np.ndarray:
         """Greedy decoding from encoder hidden states."""
         decoder_input_ids = np.array([[self.bos_token_id]], dtype=np.int64)
         generated_tokens = []
@@ -204,14 +206,17 @@ class ManualONNXInference:
             # Prepare decoder inputs
             decoder_inputs = {}
             for name in decoder_input_names:
-                if 'input_ids' in name:
+                if "input_ids" in name:
                     decoder_inputs[name] = decoder_input_ids
-                elif 'encoder_hidden_states' in name or 'encoder_outputs' in name:
+                elif "encoder_hidden_states" in name or "encoder_outputs" in name:
                     decoder_inputs[name] = encoder_hidden_states
-                elif 'encoder_attention_mask' in name:
+                elif "encoder_attention_mask" in name:
                     decoder_inputs[name] = np.ones(
-                        (encoder_hidden_states.shape[0], encoder_hidden_states.shape[1]),
-                        dtype=np.int64
+                        (
+                            encoder_hidden_states.shape[0],
+                            encoder_hidden_states.shape[1],
+                        ),
+                        dtype=np.int64,
                     )
 
             # Run decoder
@@ -227,10 +232,9 @@ class ManualONNXInference:
             generated_tokens.append(next_token[0])
 
             # Update decoder input
-            decoder_input_ids = np.concatenate([
-                decoder_input_ids,
-                next_token.reshape(1, 1)
-            ], axis=1)
+            decoder_input_ids = np.concatenate(
+                [decoder_input_ids, next_token.reshape(1, 1)], axis=1
+            )
 
         return np.array([generated_tokens])
 
@@ -239,7 +243,7 @@ class ManualONNXInference:
         audio: Union[np.ndarray, Path, str],
         sampling_rate: int = 16000,
         max_new_tokens: Optional[int] = None,
-        **kwargs  # Accept but ignore PyTorch-specific kwargs
+        **kwargs,  # Accept but ignore PyTorch-specific kwargs
     ) -> Dict:
         """
         Transcribe audio using ONNX Runtime.
@@ -274,41 +278,37 @@ class ManualONNXInference:
         encoder_hidden_states = self.encode(audio_array, sampling_rate)
         token_ids = self.decode_greedy(encoder_hidden_states, max_new_tokens)
         transcription = self.processor.tokenizer.decode(
-            token_ids[0],
-            skip_special_tokens=True
+            token_ids[0], skip_special_tokens=True
         )
 
         inference_time = time.time() - start_time
 
         return {
-            'text': transcription.strip(),
-            'audio_duration': audio_duration,
-            'inference_time': inference_time,
-            'rtf': inference_time / audio_duration
+            "text": transcription.strip(),
+            "audio_duration": audio_duration,
+            "inference_time": inference_time,
+            "rtf": inference_time / audio_duration,
         }
 
     def transcribe_batch(
-        self,
-        audio_paths: List[Path],
-        show_progress: bool = True,
-        **kwargs
+        self, audio_paths: List[Path], show_progress: bool = True, **kwargs
     ) -> List[Dict]:
         """Transcribe multiple audio files."""
         results = []
-        iterator = tqdm(audio_paths, desc="Transcribing (ONNX)") if show_progress else audio_paths
+        iterator = (
+            tqdm(audio_paths, desc="Transcribing (ONNX)")
+            if show_progress
+            else audio_paths
+        )
 
         for audio_path in iterator:
             try:
                 result = self.transcribe(audio_path, **kwargs)
-                result['file'] = str(audio_path)
+                result["file"] = str(audio_path)
                 results.append(result)
             except Exception as e:
                 print(f"\nError processing {audio_path}: {e}")
-                results.append({
-                    'file': str(audio_path),
-                    'text': '',
-                    'error': str(e)
-                })
+                results.append({"file": str(audio_path), "text": "", "error": str(e)})
 
         return results
 
@@ -317,10 +317,7 @@ class MoonshineInference:
     """Moonshine ASR inference wrapper."""
 
     def __init__(
-        self,
-        model_path: str,
-        device: Optional[str] = None,
-        fp16: bool = False
+        self, model_path: str, device: Optional[str] = None, fp16: bool = False
     ):
         """
         Initialize inference pipeline.
@@ -366,7 +363,7 @@ class MoonshineInference:
         repetition_penalty: float = 1.3,
         no_repeat_ngram_size: int = 2,
         return_timestamps: bool = False,
-        max_new_tokens: Optional[int] = None
+        max_new_tokens: Optional[int] = None,
     ) -> Dict:
         """
         Transcribe audio file or array.
@@ -400,7 +397,7 @@ class MoonshineInference:
             audio_array,
             sampling_rate=sampling_rate,
             return_tensors="pt",
-            return_attention_mask=True
+            return_attention_mask=True,
         )
 
         input_values = inputs.input_values.to(self.device)
@@ -428,22 +425,21 @@ class MoonshineInference:
                 repetition_penalty=repetition_penalty,
                 no_repeat_ngram_size=no_repeat_ngram_size,
                 do_sample=False,
-                early_stopping=True
+                early_stopping=True,
             )
 
         inference_time = time.time() - start_time
 
         # Decode
         transcription = self.processor.tokenizer.batch_decode(
-            outputs,
-            skip_special_tokens=True
+            outputs, skip_special_tokens=True
         )[0]
 
         result = {
-            'text': transcription.strip(),
-            'audio_duration': audio_duration,
-            'inference_time': inference_time,
-            'rtf': inference_time / audio_duration  # Real-time factor
+            "text": transcription.strip(),
+            "audio_duration": audio_duration,
+            "inference_time": inference_time,
+            "rtf": inference_time / audio_duration,  # Real-time factor
         }
 
         return result
@@ -453,7 +449,7 @@ class MoonshineInference:
         audio_paths: List[Path],
         batch_size: int = 8,
         show_progress: bool = True,
-        **kwargs
+        **kwargs,
     ) -> List[Dict]:
         """
         Transcribe multiple audio files.
@@ -469,20 +465,18 @@ class MoonshineInference:
         """
         results = []
 
-        iterator = tqdm(audio_paths, desc="Transcribing") if show_progress else audio_paths
+        iterator = (
+            tqdm(audio_paths, desc="Transcribing") if show_progress else audio_paths
+        )
 
         for audio_path in iterator:
             try:
                 result = self.transcribe(audio_path, **kwargs)
-                result['file'] = str(audio_path)
+                result["file"] = str(audio_path)
                 results.append(result)
             except Exception as e:
                 print(f"\nError processing {audio_path}: {e}")
-                results.append({
-                    'file': str(audio_path),
-                    'text': '',
-                    'error': str(e)
-                })
+                results.append({"file": str(audio_path), "text": "", "error": str(e)})
 
         return results
 
@@ -496,7 +490,7 @@ class LiveTranscriber:
         use_vad: bool = True,
         sample_rate: int = 16000,
         chunk_duration: float = 2.0,
-        confidence_threshold: float = 0.8
+        confidence_threshold: float = 0.8,
     ):
         """
         Initialize live transcription.
@@ -532,13 +526,18 @@ class LiveTranscriber:
             print("Loading Silero VAD model...")
             try:
                 self.vad_model, utils = torch.hub.load(
-                    repo_or_dir='snakers4/silero-vad',
-                    model='silero_vad',
-                    source='github',
-                    onnx=True
+                    repo_or_dir="snakers4/silero-vad",
+                    model="silero_vad",
+                    source="github",
+                    onnx=True,
                 )
-                (get_speech_timestamps, save_audio, read_audio,
-                 VADIterator, collect_chunks) = utils
+                (
+                    get_speech_timestamps,
+                    save_audio,
+                    read_audio,
+                    VADIterator,
+                    collect_chunks,
+                ) = utils
                 self.vad_iterator = VADIterator(self.vad_model)
                 print("VAD model loaded successfully")
             except Exception as e:
@@ -548,7 +547,7 @@ class LiveTranscriber:
 
     def _callback_with_vad(self, indata, frames, time_info, status):
         """Audio callback with Voice Activity Detection."""
-        if status and str(status) != 'input overflow':
+        if status and str(status) != "input overflow":
             print(f"Stream status: {status}")
 
         audio_flatten = indata[:, 0].flatten()
@@ -564,13 +563,13 @@ class LiveTranscriber:
             speech_dict = self.vad_iterator(self.vad_buffer, return_seconds=True)
 
             if speech_dict:
-                if 'start' in speech_dict:
+                if "start" in speech_dict:
                     # Speech started
                     self.audio_buffer = np.copy(self.vad_buffer)
                     self.is_speaking = True
                     print("🎤 Speech detected...")
 
-                elif 'end' in speech_dict:
+                elif "end" in speech_dict:
                     # Speech ended - transcribe
                     self.is_speaking = False
 
@@ -578,12 +577,11 @@ class LiveTranscriber:
                         try:
                             start_time = time.time()
                             result = self.pipeline.transcribe(
-                                self.audio_buffer,
-                                sampling_rate=self.sample_rate
+                                self.audio_buffer, sampling_rate=self.sample_rate
                             )
                             elapsed = time.time() - start_time
 
-                            if result['text']:
+                            if result["text"]:
                                 print(f"📝 {result['text']}")
                                 print(f"   (RTF: {result['rtf']:.2f}x, {elapsed:.2f}s)")
 
@@ -598,7 +596,7 @@ class LiveTranscriber:
 
     def _callback_continuous(self, indata, frames, time_info, status):
         """Audio callback for continuous transcription (no VAD)."""
-        if status and str(status) != 'input overflow':
+        if status and str(status) != "input overflow":
             print(f"Stream status: {status}")
 
         audio_flatten = indata[:, 0].flatten()
@@ -609,12 +607,11 @@ class LiveTranscriber:
             try:
                 start_time = time.time()
                 result = self.pipeline.transcribe(
-                    self.audio_buffer,
-                    sampling_rate=self.sample_rate
+                    self.audio_buffer, sampling_rate=self.sample_rate
                 )
                 elapsed = time.time() - start_time
 
-                if result['text']:
+                if result["text"]:
                     print(f"📝 {result['text']}")
                     print(f"   (RTF: {result['rtf']:.2f}x, {elapsed:.2f}s)")
 
@@ -626,7 +623,9 @@ class LiveTranscriber:
 
     def start(self):
         """Start live transcription."""
-        callback = self._callback_with_vad if self.use_vad else self._callback_continuous
+        callback = (
+            self._callback_with_vad if self.use_vad else self._callback_continuous
+        )
 
         print("\n" + "=" * 60)
         print("LIVE TRANSCRIPTION MODE")
@@ -640,9 +639,7 @@ class LiveTranscriber:
 
         try:
             with sd.InputStream(
-                samplerate=self.sample_rate,
-                channels=1,
-                callback=callback
+                samplerate=self.sample_rate, channels=1, callback=callback
             ):
                 while True:
                     sd.sleep(1000)
@@ -655,7 +652,7 @@ class LiveTranscriber:
 
 def main():
     parser = argparse.ArgumentParser(
-        description='Moonshine ASR Inference',
+        description="Moonshine ASR Inference",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
@@ -683,93 +680,91 @@ Examples:
 
   # Manual ONNX (fastest)
   python inference.py --model ./model-onnx --audio audio.wav --use-manual-onnx
-        """
+        """,
     )
 
     # Required arguments
     parser.add_argument(
-        '--model',
+        "--model",
         type=str,
         required=True,
-        help='Path to model directory or HuggingFace model name'
+        help="Path to model directory or HuggingFace model name",
     )
     parser.add_argument(
-        '--audio',
+        "--audio",
         type=str,
-        help='Path to audio file or directory containing audio files (not required for --live mode)'
+        help="Path to audio file or directory containing audio files (not required for --live mode)",
     )
 
     # Optional arguments
     parser.add_argument(
-        '--output',
+        "--output",
         type=str,
-        help='Output JSON file for results (default: print to stdout)'
+        help="Output JSON file for results (default: print to stdout)",
     )
     parser.add_argument(
-        '--device',
+        "--device",
         type=str,
-        choices=['cuda', 'cpu'],
-        help='Device to use (default: auto-detect)'
+        choices=["cuda", "cpu"],
+        help="Device to use (default: auto-detect)",
     )
     parser.add_argument(
-        '--fp16',
-        action='store_true',
-        help='Use FP16 precision (CUDA only, faster inference)'
+        "--fp16",
+        action="store_true",
+        help="Use FP16 precision (CUDA only, faster inference)",
     )
 
     # Generation parameters
     parser.add_argument(
-        '--num-beams',
+        "--num-beams",
         type=int,
         default=5,
-        help='Number of beams for beam search (default: 5)'
+        help="Number of beams for beam search (default: 5)",
     )
     parser.add_argument(
-        '--repetition-penalty',
+        "--repetition-penalty",
         type=float,
         default=1.3,
-        help='Penalty for repeating tokens (default: 1.3)'
+        help="Penalty for repeating tokens (default: 1.3)",
     )
     parser.add_argument(
-        '--no-repeat-ngram-size',
+        "--no-repeat-ngram-size",
         type=int,
         default=2,
-        help='Block repeated n-grams (default: 2)'
+        help="Block repeated n-grams (default: 2)",
     )
     parser.add_argument(
-        '--max-new-tokens',
+        "--max-new-tokens",
         type=int,
-        help='Maximum tokens to generate (default: auto based on duration)'
+        help="Maximum tokens to generate (default: auto based on duration)",
     )
 
     # Live mode arguments
     parser.add_argument(
-        '--live',
-        action='store_true',
-        help='Enable live transcription from microphone'
+        "--live", action="store_true", help="Enable live transcription from microphone"
     )
     parser.add_argument(
-        '--no-vad',
-        action='store_true',
-        help='Disable Voice Activity Detection in live mode (continuous transcription)'
+        "--no-vad",
+        action="store_true",
+        help="Disable Voice Activity Detection in live mode (continuous transcription)",
     )
     parser.add_argument(
-        '--chunk-duration',
+        "--chunk-duration",
         type=float,
         default=2.0,
-        help='Chunk duration in seconds for continuous mode (default: 2.0)'
+        help="Chunk duration in seconds for continuous mode (default: 2.0)",
     )
 
     # ONNX mode arguments
     parser.add_argument(
-        '--onnx',
-        action='store_true',
-        help='Use ONNX Runtime for super fast inference (requires ONNX model)'
+        "--onnx",
+        action="store_true",
+        help="Use ONNX Runtime for super fast inference (requires ONNX model)",
     )
     parser.add_argument(
-        '--use-manual-onnx',
-        action='store_true',
-        help='Use manual ONNX inference (fastest, lower-level)'
+        "--use-manual-onnx",
+        action="store_true",
+        help="Use manual ONNX inference (fastest, lower-level)",
     )
 
     args = parser.parse_args()
@@ -796,21 +791,29 @@ Examples:
             print("Using Optimum ORTModel")
             try:
                 pipeline = ORTModelForSpeechSeq2Seq.from_pretrained(args.model)
+
                 # Create wrapper to match interface
                 class OptimumWrapper:
                     def __init__(self, model, model_path):
                         self.model = model
                         from transformers import AutoProcessor
+
                         try:
                             self.processor = AutoProcessor.from_pretrained(model_path)
                         except:
-                            self.processor = AutoProcessor.from_pretrained("UsefulSensors/moonshine-tiny")
+                            self.processor = AutoProcessor.from_pretrained(
+                                "UsefulSensors/moonshine-tiny"
+                            )
 
-                    def transcribe(self, audio, sampling_rate=16000, max_new_tokens=None, **kwargs):
+                    def transcribe(
+                        self, audio, sampling_rate=16000, max_new_tokens=None, **kwargs
+                    ):
                         """Transcribe using Optimum."""
                         if isinstance(audio, (str, Path)):
                             audio_path = Path(audio)
-                            audio_array = load_audio(audio_path, target_sr=sampling_rate)
+                            audio_array = load_audio(
+                                audio_path, target_sr=sampling_rate
+                            )
                             audio_duration = len(audio_array) / sampling_rate
                         else:
                             audio_array = audio
@@ -824,7 +827,7 @@ Examples:
                             audio_array,
                             sampling_rate=sampling_rate,
                             return_tensors="pt",
-                            return_attention_mask=True
+                            return_attention_mask=True,
                         )
 
                         if max_new_tokens is None:
@@ -835,34 +838,45 @@ Examples:
                         generated_ids = self.model.generate(
                             inputs.input_values,
                             attention_mask=inputs.attention_mask,
-                            max_new_tokens=max_new_tokens
+                            max_new_tokens=max_new_tokens,
                         )
                         inference_time = time.time() - start_time
 
                         transcription = self.processor.batch_decode(
-                            generated_ids,
-                            skip_special_tokens=True
+                            generated_ids, skip_special_tokens=True
                         )[0]
 
                         return {
-                            'text': transcription.strip(),
-                            'audio_duration': audio_duration,
-                            'inference_time': inference_time,
-                            'rtf': inference_time / audio_duration
+                            "text": transcription.strip(),
+                            "audio_duration": audio_duration,
+                            "inference_time": inference_time,
+                            "rtf": inference_time / audio_duration,
                         }
 
-                    def transcribe_batch(self, audio_paths, show_progress=True, **kwargs):
+                    def transcribe_batch(
+                        self, audio_paths, show_progress=True, **kwargs
+                    ):
                         """Batch transcription."""
                         results = []
-                        iterator = tqdm(audio_paths, desc="Transcribing (Optimum ONNX)") if show_progress else audio_paths
+                        iterator = (
+                            tqdm(audio_paths, desc="Transcribing (Optimum ONNX)")
+                            if show_progress
+                            else audio_paths
+                        )
                         for audio_path in iterator:
                             try:
                                 result = self.transcribe(audio_path, **kwargs)
-                                result['file'] = str(audio_path)
+                                result["file"] = str(audio_path)
                                 results.append(result)
                             except Exception as e:
                                 print(f"\nError: {e}")
-                                results.append({'file': str(audio_path), 'text': '', 'error': str(e)})
+                                results.append(
+                                    {
+                                        "file": str(audio_path),
+                                        "text": "",
+                                        "error": str(e),
+                                    }
+                                )
                         return results
 
                 pipeline = OptimumWrapper(pipeline, args.model)
@@ -874,9 +888,7 @@ Examples:
     else:
         # Standard PyTorch mode
         pipeline = MoonshineInference(
-            model_path=args.model,
-            device=args.device,
-            fp16=args.fp16
+            model_path=args.model, device=args.device, fp16=args.fp16
         )
 
     # Live mode
@@ -884,7 +896,7 @@ Examples:
         live_transcriber = LiveTranscriber(
             inference_pipeline=pipeline,
             use_vad=not args.no_vad,
-            chunk_duration=args.chunk_duration
+            chunk_duration=args.chunk_duration,
         )
         live_transcriber.start()
         return 0
@@ -900,7 +912,7 @@ Examples:
             num_beams=args.num_beams,
             repetition_penalty=args.repetition_penalty,
             no_repeat_ngram_size=args.no_repeat_ngram_size,
-            max_new_tokens=args.max_new_tokens
+            max_new_tokens=args.max_new_tokens,
         )
 
         print(f"\nTranscription: {result['text']}")
@@ -909,12 +921,12 @@ Examples:
         print(f"Real-time factor: {result['rtf']:.2f}x")
 
         results = [result]
-        results[0]['file'] = str(audio_path)
+        results[0]["file"] = str(audio_path)
 
     elif audio_path.is_dir():
         # Directory of files
         audio_files = []
-        for ext in ['*.wav', '*.mp3', '*.flac', '*.ogg', '*.m4a']:
+        for ext in ["*.wav", "*.mp3", "*.flac", "*.ogg", "*.m4a"]:
             audio_files.extend(audio_path.glob(ext))
             audio_files.extend(audio_path.glob(ext.upper()))
 
@@ -931,21 +943,21 @@ Examples:
             num_beams=args.num_beams,
             repetition_penalty=args.repetition_penalty,
             no_repeat_ngram_size=args.no_repeat_ngram_size,
-            max_new_tokens=args.max_new_tokens
+            max_new_tokens=args.max_new_tokens,
         )
 
         # Print summary
         print(f"\n{'='*60}")
         print(f"TRANSCRIPTION SUMMARY")
         print(f"{'='*60}")
-        successful = sum(1 for r in results if 'error' not in r)
+        successful = sum(1 for r in results if "error" not in r)
         failed = len(results) - successful
         print(f"Total files: {len(results)}")
         print(f"Successful: {successful}")
         print(f"Failed: {failed}")
 
         if successful > 0:
-            avg_rtf = np.mean([r['rtf'] for r in results if 'error' not in r])
+            avg_rtf = np.mean([r["rtf"] for r in results if "error" not in r])
             print(f"Average real-time factor: {avg_rtf:.2f}x")
 
     else:
@@ -957,7 +969,7 @@ Examples:
         output_path = Path(args.output)
         output_path.parent.mkdir(parents=True, exist_ok=True)
 
-        with open(output_path, 'w', encoding='utf-8') as f:
+        with open(output_path, "w", encoding="utf-8") as f:
             json.dump(results, f, ensure_ascii=False, indent=2)
 
         print(f"\nResults saved to: {output_path}")
@@ -972,4 +984,4 @@ Examples:
 
 if __name__ == "__main__":
     import sys
-    sys.exit(main())
+

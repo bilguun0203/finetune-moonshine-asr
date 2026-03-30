@@ -28,7 +28,7 @@ def pad_audio(
     audio_data: np.ndarray,
     target_duration: float = 2.0,
     sample_rate: int = 16000,
-    mode: str = "center"
+    mode: str = "center",
 ) -> np.ndarray:
     """
     Pad audio to target duration.
@@ -65,7 +65,7 @@ def pad_audio(
     else:
         raise ValueError(f"Unknown padding mode: {mode}")
 
-    return np.pad(audio_data, (pad_left, pad_right), mode='constant', constant_values=0)
+    return np.pad(audio_data, (pad_left, pad_right), mode="constant", constant_values=0)
 
 
 def resample_audio(audio_data: np.ndarray, orig_sr: int, target_sr: int) -> np.ndarray:
