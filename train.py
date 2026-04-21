@@ -562,6 +562,7 @@ def main():
         # Hub
         push_to_hub=args.push_to_hub or train_config.get("push_to_hub", False),
         hub_model_id=train_config.get("hub_model_id"),
+        hub_private_repo=True,
         # Run name
         run_name=f"moonshine_phase{args.phase}"
         if config["curriculum"]["enabled"]

@@ -21,6 +21,7 @@ Usage:
 
 import argparse
 import json
+import sys
 import time
 from pathlib import Path
 from typing import Dict, List, Optional
@@ -30,7 +31,12 @@ import numpy as np
 import torch
 from transformers import MoonshineForConditionalGeneration, AutoProcessor
 from tqdm import tqdm
-import jiwer
+
+# Allow importing moonshine_ft when the script is run from the scripts/ directory
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+
+from datasets import load_dataset as hf_load_dataset
+from moonshine_ft.data_loader import MoonshineDataLoader
 
 
 def compute_wer(predictions: List[str], references: List[str]) -> Dict:
@@ -155,7 +161,7 @@ class MoonshineEvaluator:
         # Calculate max tokens based on audio duration
         # Roughly 5 tokens per second (accounting for French verbosity)
         audio_duration = len(audio_array) / sampling_rate
-        max_new_tokens = max(10, min(int(audio_duration * 5), 150))
+        max_new_tokens = max(10, min(int(audio_duration * 10), 150))
 
         # Generate
         with torch.no_grad():
@@ -382,18 +388,37 @@ Examples:
     print(f"Loading dataset from: {args.dataset}")
 
     try:
-        # Try loading as local dataset first
+        data_loader = MoonshineDataLoader()
+
         if Path(args.dataset).exists():
-            dataset_dict = load_from_disk(args.dataset)
-            if isinstance(dataset_dict, dict):
-                # DatasetDict
-                dataset = dataset_dict[args.split]
-            else:
-                # Single dataset
-                dataset = dataset_dict
+            # Local dataset: handles both Arrow (save_to_disk) and
+            # HuggingFace parquet layouts; normalises the text column to 'sentence'.
+            dataset_dict = data_loader.load_local(
+                path=args.dataset,
+                text_column=args.text_column,
+            )
+            # load_local always normalises the text column to 'sentence'
+            args.text_column = "sentence"
+
+            # Map the requested split to the canonical name produced by load_local
+            _split_map = {
+                "train": "train",
+                "validation": "test",
+                "test": "test",
+                "dev": "test",
+            }
+            canonical_split = _split_map.get(args.split, args.split)
+            if canonical_split not in dataset_dict:
+                available = list(dataset_dict.keys())
+                print(
+                    f"Split '{args.split}' not found. "
+                    f"Available: {available}. Using '{available[0]}'."
+                )
+                canonical_split = available[0]
+            dataset = dataset_dict[canonical_split]
         else:
-            # Try HuggingFace Hub
-            dataset = load_dataset(args.dataset, split=args.split)
+            # HuggingFace Hub dataset
+            dataset = hf_load_dataset(args.dataset, split=args.split)
 
         print(f"Loaded {len(dataset)} samples from split '{args.split}'")
 
@@ -450,5 +475,5 @@ Examples:
 
 
 if __name__ == "__main__":
-    import sys
+    main()
 

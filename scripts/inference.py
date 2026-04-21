@@ -109,6 +109,7 @@ def normalize_audio(audio_data: np.ndarray, target_rms: float = 0.075) -> np.nda
         scale_factor = target_rms / rms
         normalized = audio_data * scale_factor
         return np.clip(normalized, -1.0, 1.0)
+    print(f"⚠️  Warning: audio is nearly silent (RMS={rms:.6f}). Transcription may be empty.")
     return audio_data
 
 
@@ -166,27 +167,42 @@ class ManualONNXInference:
                 "UsefulSensors/moonshine-tiny"
             )
 
-        # Token IDs
-        self.bos_token_id = 1
-        self.eos_token_id = 2
-        self.pad_token_id = 2
+        # Token IDs — read from tokenizer to avoid mismatches
+        tok = self.processor.tokenizer
+        self.bos_token_id = tok.bos_token_id if tok.bos_token_id is not None else 1
+        self.eos_token_id = tok.eos_token_id if tok.eos_token_id is not None else 2
+        self.pad_token_id = tok.pad_token_id if tok.pad_token_id is not None else self.eos_token_id
+        print(f"Token IDs — BOS: {self.bos_token_id}, EOS: {self.eos_token_id}, PAD: {self.pad_token_id}")
 
         print("✅ Manual ONNX model loaded")
 
     def encode(self, audio_array: np.ndarray, sampling_rate: int = 16000) -> np.ndarray:
         """Encode audio to hidden states."""
         inputs = self.processor(
-            audio_array, sampling_rate=sampling_rate, return_tensors="np"
+            audio_array, sampling_rate=sampling_rate, return_tensors="np",
+            return_attention_mask=True,
         )
-        input_values = inputs.input_values
+        # Support both naming conventions used by different processor versions
+        audio_tensor = (
+            inputs.input_values
+            if hasattr(inputs, "input_values") and inputs.input_values is not None
+            else inputs.input_features
+        )
+        attention_mask = getattr(inputs, "attention_mask", None)
 
         # Get encoder input names
         encoder_inputs = {inp.name: None for inp in self.encoder_session.get_inputs()}
 
         if "input_values" in encoder_inputs:
-            encoder_inputs["input_values"] = input_values
+            encoder_inputs["input_values"] = audio_tensor
         elif "input_features" in encoder_inputs:
-            encoder_inputs["input_features"] = input_values
+            encoder_inputs["input_features"] = audio_tensor
+
+        if "attention_mask" in encoder_inputs and attention_mask is not None:
+            encoder_inputs["attention_mask"] = attention_mask.astype(np.int64)
+
+        # Drop any remaining None-valued keys (optional inputs not provided)
+        encoder_inputs = {k: v for k, v in encoder_inputs.items() if v is not None}
 
         # Run encoder
         encoder_outputs = self.encoder_session.run(None, encoder_inputs)
@@ -400,7 +416,13 @@ class MoonshineInference:
             return_attention_mask=True,
         )
 
-        input_values = inputs.input_values.to(self.device)
+        # Support both naming conventions used by different processor versions
+        audio_tensor = (
+            inputs.input_values
+            if hasattr(inputs, "input_values") and inputs.input_values is not None
+            else inputs.input_features
+        )
+        input_values = audio_tensor.to(self.device)
         attention_mask = inputs.attention_mask.to(self.device)
 
         # Convert to FP16 if enabled
@@ -983,5 +1005,5 @@ Examples:
 
 
 if __name__ == "__main__":
-    import sys
+    main()
 

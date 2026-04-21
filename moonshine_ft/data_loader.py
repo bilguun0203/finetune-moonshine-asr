@@ -284,54 +284,171 @@ class MoonshineDataLoader:
 
     def load_local(self, path: str, text_column: str = "transcript") -> DatasetDict:
         """
-        Load dataset from local directory (saved with save_to_disk()).
+        Load dataset from local directory.
+
+        Supports two formats:
+
+        - Datasets saved with ``save_to_disk()`` (directory contains
+          *dataset_dict.json* or *dataset_info.json*).
+        - HuggingFace downloaded parquet files in any of these layouts:
+
+            * ``{split}-XXXXX-of-XXXXX.parquet`` files in the root directory
+            * ``data/{split}-XXXXX-of-XXXXX.parquet`` files
+            * ``{split}/`` subdirectories containing ``*.parquet`` shards
 
         Args:
-            path: Path to dataset directory
-            text_column: Name of text column (default: 'transcript')
+            path: Path to dataset directory.
+            text_column: Column that holds the transcript (default: ``'transcript'``).
 
         Returns:
-            DatasetDict with 'train' and 'test' splits
+            DatasetDict with ``'train'`` and ``'test'`` splits.
         """
         print(f"\nLoading local dataset from: {path}")
 
-        dataset = load_from_disk(path)
+        root = Path(path)
+        if not root.exists():
+            raise FileNotFoundError(f"Dataset path does not exist: {path}")
 
-        # Check if it's already a DatasetDict or a single Dataset
-        if isinstance(dataset, DatasetDict):
-            # Already has train/test splits
-            print(f"\nDataset loaded:")
-            print(f"  Train samples: {len(dataset['train']):,}")
-            print(f"  Test samples: {len(dataset['test']):,}")
+        # Detect format: save_to_disk() always writes dataset_dict.json (DatasetDict)
+        # or dataset_info.json (single Dataset) at the root level.
+        is_arrow_disk = (root / "dataset_dict.json").exists() or (
+            root / "dataset_info.json"
+        ).exists()
 
-            # Rename text column if needed
-            if (
-                text_column != "sentence"
-                and text_column in dataset["train"].column_names
-            ):
-                dataset = DatasetDict(
-                    {
-                        "train": dataset["train"].rename_column(
-                            text_column, "sentence"
-                        ),
-                        "test": dataset["test"].rename_column(text_column, "sentence"),
-                    }
-                )
-
+        if is_arrow_disk:
+            dataset = self._load_arrow_disk(root, text_column)
         else:
-            # Single dataset - should have been split already
-            raise ValueError(
-                f"Expected DatasetDict with 'train' and 'test' splits, got {type(dataset)}. "
-                "Please create train/test split before saving to disk."
-            )
+            dataset = self._load_parquet(root, text_column)
 
-        # Cast audio to target sampling rate if needed
+        # Cast audio column to the target sampling rate when present.
         if "audio" in dataset["train"].column_names:
             dataset = dataset.cast_column(
                 "audio", Audio(sampling_rate=self.sampling_rate)
             )
 
         return dataset
+
+    # ------------------------------------------------------------------
+    # Private helpers used by load_local
+    # ------------------------------------------------------------------
+
+    def _load_arrow_disk(self, root: Path, text_column: str) -> DatasetDict:
+        """Load a dataset previously saved with ``save_to_disk()``."""
+        dataset = load_from_disk(str(root))
+
+        if not isinstance(dataset, DatasetDict):
+            raise ValueError(
+                f"Expected DatasetDict with 'train' and 'test' splits, "
+                f"got {type(dataset)}. "
+                "Please create a train/test split before saving to disk."
+            )
+
+        print("\nDataset loaded (Arrow / save_to_disk format):")
+        print(f"  Train samples: {len(dataset['train']):,}")
+        print(f"  Test samples:  {len(dataset['test']):,}")
+
+        return self._normalise_text_column(dataset, text_column)
+
+    def _load_parquet(self, root: Path, text_column: str) -> DatasetDict:
+        """
+        Load a dataset from HuggingFace-style parquet files.
+
+        Tries the following layout conventions in order:
+
+        1. ``{root}/{split}-*.parquet``  (flat files with split prefix in root)
+        2. ``{root}/data/{split}-*.parquet``
+        3. ``{root}/{split}/*.parquet``  (one subdirectory per split)
+        """
+        _SPLIT_ALIASES: Dict[str, str] = {
+            "train": "train",
+            "validation": "test",
+            "test": "test",
+            "dev": "test",
+        }
+
+        def _collect(directory: Path) -> Dict[str, list]:
+            """Return canonical-split-name -> sorted list of parquet paths."""
+            result: Dict[str, list] = {}
+
+            # Layouts 1 & 2: flat parquet files with a known split prefix.
+            for search_dir in (directory, directory / "data"):
+                candidates = sorted(search_dir.glob("*.parquet"))
+                if candidates:
+                    for p in candidates:
+                        matched = False
+                        for alias, canonical in _SPLIT_ALIASES.items():
+                            if p.stem.startswith(alias):
+                                result.setdefault(canonical, []).append(str(p))
+                                matched = True
+                                break
+                        if not matched:
+                            # Unknown prefix – fall back to 'train'.
+                            result.setdefault("train", []).append(str(p))
+                    return result
+
+            # Layout 3: per-split subdirectories.
+            for alias, canonical in _SPLIT_ALIASES.items():
+                sub = directory / alias
+                if sub.is_dir():
+                    parquets = sorted(sub.glob("*.parquet"))
+                    if parquets:
+                        result.setdefault(canonical, []).extend(
+                            str(p) for p in parquets
+                        )
+
+            return result
+
+        split_files = _collect(root)
+
+        if not split_files:
+            raise FileNotFoundError(
+                f"No parquet files found under '{root}'. "
+                "Expected HuggingFace-style *.parquet shards or a directory saved "
+                "with Dataset.save_to_disk()."
+            )
+
+        if "train" not in split_files:
+            raise ValueError(
+                f"Could not find a 'train' split in '{root}'. "
+                f"Detected splits: {list(split_files.keys())}"
+            )
+
+        print(f"\nDetected parquet files in '{root}':")
+        for split, files in split_files.items():
+            print(f"  {split}: {len(files)} shard(s)")
+
+        dataset = DatasetDict(
+            {
+                split: load_dataset("parquet", data_files=files, split="train")
+                for split, files in split_files.items()
+            }
+        )
+
+        # Create a test split when the source only has training data.
+        if "test" not in dataset:
+            print("\nNo 'test' split detected – splitting off 10 % of 'train' as test.")
+            tmp = dataset["train"].train_test_split(test_size=0.1, seed=42)
+            dataset = DatasetDict({"train": tmp["train"], "test": tmp["test"]})
+
+        print("\nDataset loaded (parquet format):")
+        print(f"  Train samples: {len(dataset['train']):,}")
+        print(f"  Test samples:  {len(dataset['test']):,}")
+
+        return self._normalise_text_column(dataset, text_column)
+
+    def _normalise_text_column(
+        self, dataset: DatasetDict, text_column: str
+    ) -> DatasetDict:
+        """Rename *text_column* to ``'sentence'`` when it is not already named that."""
+        if text_column == "sentence":
+            return dataset
+
+        def _maybe_rename(ds: Dataset, col: str) -> Dataset:
+            return ds.rename_column(col, "sentence") if col in ds.column_names else ds
+
+        return DatasetDict(
+            {split: _maybe_rename(ds, text_column) for split, ds in dataset.items()}
+        )
 
     @classmethod
     def from_config(cls, config: Dict[str, Any]) -> "MoonshineDataLoader":
@@ -440,6 +557,7 @@ class MoonshineDataLoader:
             lambda x: x["audio"] is not None
             and x[text_column] is not None
             and x[text_column].strip() != ""
+            and len(x[text_column]) < 1000
         )
 
         prepared = dataset.map(
